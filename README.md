@@ -1,1 +1,1 @@
-# quant
+# strategies development on JQ
