@@ -133,9 +133,9 @@ def get_fundamentals_ttm(date,count,sec_list=[],table='',fields=["operating_reve
     if type(date)==str:
         fdate = datetime.datetime.strptime(date, "%Y-%m-%d")
 
-    need_years = (count+1) 
+    need_years = (count+2) 
     #该年度的财报格式日期，比如2019Q2,2019Q1
-    this_year_statDate= [str(fdate.year)+ 'q'+ str(i) for i in range(1,int(fdate.month/4) + 1 )]
+    this_year_statDate= [str(fdate.year)+ 'q'+ str(i) for i in range(1,int(fdate.month/3) + 1 )]
     #该之前各年的财报格式日期    
     other_year_list = [str(fdate.year-y)+ 'q'+ str(i) for y in range(1,need_years)  for i in range(1, 5)]
     statDate_list= other_year_list + this_year_statDate
@@ -147,8 +147,8 @@ def get_fundamentals_ttm(date,count,sec_list=[],table='',fields=["operating_reve
     print(f_list)
             
     q_query = query(
-            table
-        ).filter(table.code.in_ ( sec_list ),table.pubDate<date)
+            income,balance,cash_flow
+        ).filter(table.code.in_ ( sec_list ),table.pubDate<fdate)
 
     df_f = [ get_fundamentals(q_query,statDate=sd)[f_list] for sd in statDate_list]
     df_f_all = pd.concat(df_f).sort_values(['statDate'])
@@ -165,6 +165,60 @@ def get_fundamentals_ttm(date,count,sec_list=[],table='',fields=["operating_reve
     df_result=df_result.reset_index()
     return df_result,df_f_all
 
+
+def get_fundamentals_balance(date,count,sec_list=[],table='',fields=["operating_revenue"]):
+    import pandas as pd
+    import datetime
+
+    '''
+    输入：
+        sec_list:  要查询股票列表
+        table:     要查询的字段所在表，详情参考 API： get_fundamentals-查询财务数据
+        fields：   字段列表，t表里有的字段
+        date：     日期，字符串，
+        count:     取多少期的TTM，
+
+    输出：
+        df_result:df_f_all汇总为TTM年的形式，每个股票共count期财务数据
+        df_f_all: 返回date日期之前发布的count*4个单季报财务报表串起来concat的 DataFrame
+
+    '''    
+    fdate=date
+    if type(date)==str:
+        fdate = datetime.datetime.strptime(date, "%Y-%m-%d")
+
+    need_years = (count+2) 
+    #该年度的财报格式日期，比如2019Q2,2019Q1
+    this_year_statDate= [str(fdate.year)+ 'q'+ str(i) for i in range(1,int(fdate.month/3) + 1 )]
+    #该之前各年的财报格式日期    
+    other_year_list = [str(fdate.year-y)+ 'q'+ str(i) for y in range(1,need_years)  for i in range(1, 5)]
+    statDate_list= other_year_list + this_year_statDate
+
+    #print(statDate_list)
+    
+    f_list = ["code","statDate","pubDate"] + [f for f in fields if f not in ["code","statDate","pubDate"]] 
+    
+    print(f_list)
+            
+    q_query = query(
+            income,balance,cash_flow
+        ).filter(table.code.in_ ( sec_list ),table.pubDate<fdate)
+
+    df_f = [ get_fundamentals(q_query,statDate=sd)[f_list] for sd in statDate_list]
+    df_f_all = pd.concat(df_f).sort_values(['statDate'])
+    df_f_all = df_f_all.groupby(by='code').tail(count*4)
+
+    agg_key={f:'mean' for f in fields}
+    
+    df_f_all['reportdate']=df_f_all['statDate'].apply(lambda x:datetime.datetime.strptime(x, "%Y-%m-%d"))
+    df_f_all['rank']=df_f_all.groupby(['code'])['reportdate'].rank(method='min',ascending=False)
+    df_f_all['rank_mod']=df_f_all['rank'].apply(lambda x:int(x-1) % 4)
+    df_f_all['ttm_lag']= df_f_all['rank'].apply(lambda x:int(x-1) // 4 +1)   
+
+    df_result=df_f_all[(df_f_all['rank_mod']==3) | (df_f_all['rank_mod']==0)].groupby(['code','ttm_lag']).agg(agg_key)
+    df_result.columns=agg_key.keys()
+    df_result=df_result.reset_index()
+    return df_result,df_f_all
 
 def HHM_stock(stock,startdate,enddate,predict_startdate,predict_enddate,hmmcomponents=4,cov_type='full'):
     from hmmlearn.hmm import GMMHMM,GaussianHMM
